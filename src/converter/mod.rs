@@ -168,10 +168,11 @@ pub struct ColorConverterConfig {
 }
 
 impl ColorConverterConfig {
-    /// Create a new configuration with BT.709 color space and full range.
+    /// Create a new configuration with full range.
     pub fn new(
         width: u32,
         height: u32,
+        colorspace: ColorSpace,
         input_format: InputFormat,
         output_format: OutputFormat,
     ) -> Self {
@@ -180,7 +181,7 @@ impl ColorConverterConfig {
             height,
             input_format,
             output_format,
-            color_space: ColorSpace::Bt709,
+            color_space: colorspace,
             full_range: true,
             sdr_reference_white_nits: 203.0,
         }
