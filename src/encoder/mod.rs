@@ -120,6 +120,34 @@ pub enum RateControlMode {
     Vbr,
 }
 
+/// Encoder tuning modes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum EncoderTuneMode {
+    /// Default tune - no bias on quality or latency.
+    #[default]
+    Default,
+    /// High quality - higher quality encode at cost of increased latency.
+    HighQuality,
+    /// Low latency - faster encode at cost of lower quality.
+    LowLatency,
+    /// Ultra low latency - even faster encode at cost of lower quality.
+    UltraLowLatency,
+    /// Lossless - encode without loss of quality.
+    Lossless,
+}
+
+impl From<EncoderTuneMode> for vk::VideoEncodeTuningModeKHR {
+    fn from(tune: EncoderTuneMode) -> Self {
+        match tune {
+            EncoderTuneMode::Default => vk::VideoEncodeTuningModeKHR::DEFAULT,
+            EncoderTuneMode::HighQuality => vk::VideoEncodeTuningModeKHR::HIGH_QUALITY,
+            EncoderTuneMode::LowLatency => vk::VideoEncodeTuningModeKHR::LOW_LATENCY,
+            EncoderTuneMode::UltraLowLatency => vk::VideoEncodeTuningModeKHR::ULTRA_LOW_LATENCY,
+            EncoderTuneMode::Lossless => vk::VideoEncodeTuningModeKHR::LOSSLESS,
+        }
+    }
+}
+
 /// Frame types in encoded stream.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameType {
@@ -194,6 +222,8 @@ pub struct EncodeConfig {
     pub bit_depth: BitDepth,
     /// Rate control mode.
     pub rate_control_mode: RateControlMode,
+    /// Encoder tune mode.
+    pub encoder_tune_mode: EncoderTuneMode,
     /// Target bitrate in bits per second.
     pub target_bitrate: u32,
     /// Maximum bitrate in bits per second.
@@ -238,6 +268,7 @@ impl EncodeConfig {
             pixel_format: PixelFormat::Yuv420,
             bit_depth: BitDepth::Eight,
             rate_control_mode: RateControlMode::Disabled,
+            encoder_tune_mode: EncoderTuneMode::Default,
             target_bitrate: DEFAULT_TARGET_BITRATE,
             max_bitrate: DEFAULT_MAX_BITRATE,
             quality_level: DEFAULT_H264_QP,
@@ -263,6 +294,7 @@ impl EncodeConfig {
             pixel_format: PixelFormat::Yuv420,
             bit_depth: BitDepth::Eight,
             rate_control_mode: RateControlMode::Disabled,
+            encoder_tune_mode: EncoderTuneMode::Default,
             target_bitrate: DEFAULT_TARGET_BITRATE,
             max_bitrate: DEFAULT_MAX_BITRATE,
             quality_level: DEFAULT_H265_QP,
@@ -288,6 +320,7 @@ impl EncodeConfig {
             pixel_format: PixelFormat::Yuv420,
             bit_depth: BitDepth::Eight,
             rate_control_mode: RateControlMode::Disabled,
+            encoder_tune_mode: EncoderTuneMode::Default,
             target_bitrate: DEFAULT_TARGET_BITRATE,
             max_bitrate: DEFAULT_MAX_BITRATE,
             quality_level: 128, // AV1 uses 0-255 QP range
@@ -305,6 +338,12 @@ impl EncodeConfig {
     /// Set the rate control mode.
     pub fn with_rate_control(mut self, mode: RateControlMode) -> Self {
         self.rate_control_mode = mode;
+        self
+    }
+
+    /// Set encoder tune mode.
+    pub fn with_encoder_tune_mode(mut self, mode: EncoderTuneMode) -> Self {
+        self.encoder_tune_mode = mode;
         self
     }
 

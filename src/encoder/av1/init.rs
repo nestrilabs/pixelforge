@@ -10,6 +10,7 @@ use crate::encoder::{ColorDescription, PixelFormat};
 use crate::error::{PixelForgeError, Result};
 use crate::vulkan::VideoContext;
 use ash::vk;
+use ash::vk::TaggedStructure;
 use std::ptr;
 use tracing::{debug, info, warn};
 
@@ -65,13 +66,20 @@ impl AV1Encoder {
         // Create AV1 encode profile.
         let mut av1_profile_info = vk::VideoEncodeAV1ProfileInfoKHR::default().std_profile(profile);
 
-        let mut profile_info = vk::VideoProfileInfoKHR::default()
+        // Encoder usage usage and tuning
+        let tuning_mode: vk::VideoEncodeTuningModeKHR = config.encoder_tune_mode.into();
+        let mut encode_usage = vk::VideoEncodeUsageInfoKHR::default()
+            .video_usage_hints(vk::VideoEncodeUsageFlagsKHR::STREAMING)
+            .video_content_hints(vk::VideoEncodeContentFlagsKHR::RENDERED)
+            .tuning_mode(tuning_mode);
+
+        let profile_info = vk::VideoProfileInfoKHR::default()
             .video_codec_operation(vk::VideoCodecOperationFlagsKHR::ENCODE_AV1)
             .chroma_subsampling(chroma_subsampling)
             .luma_bit_depth(luma_bit_depth)
-            .chroma_bit_depth(chroma_bit_depth);
-        profile_info.p_next =
-            (&mut av1_profile_info as *mut vk::VideoEncodeAV1ProfileInfoKHR).cast();
+            .chroma_bit_depth(chroma_bit_depth)
+            .push(&mut av1_profile_info)
+            .push(&mut encode_usage);
 
         // Query encode capabilities.
         let video_queue_instance =

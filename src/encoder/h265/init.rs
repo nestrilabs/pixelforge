@@ -12,6 +12,7 @@ use crate::encoder::{BitDepth, ColorDescription, PixelFormat};
 use crate::error::{PixelForgeError, Result};
 use crate::vulkan::VideoContext;
 use ash::vk;
+use ash::vk::TaggedStructure;
 use std::ptr;
 use tracing::{debug, info};
 
@@ -78,13 +79,20 @@ impl H265Encoder {
         let mut h265_profile_info =
             vk::VideoEncodeH265ProfileInfoKHR::default().std_profile_idc(profile_idc);
 
-        let mut profile_info = vk::VideoProfileInfoKHR::default()
+        // Encoder usage usage and tuning
+        let tuning_mode: vk::VideoEncodeTuningModeKHR = config.encoder_tune_mode.into();
+        let mut encode_usage = vk::VideoEncodeUsageInfoKHR::default()
+            .video_usage_hints(vk::VideoEncodeUsageFlagsKHR::STREAMING)
+            .video_content_hints(vk::VideoEncodeContentFlagsKHR::RENDERED)
+            .tuning_mode(tuning_mode);
+
+        let profile_info = vk::VideoProfileInfoKHR::default()
             .video_codec_operation(vk::VideoCodecOperationFlagsKHR::ENCODE_H265)
             .chroma_subsampling(chroma_subsampling)
             .luma_bit_depth(bit_depth_flags)
-            .chroma_bit_depth(bit_depth_flags);
-        profile_info.p_next =
-            (&mut h265_profile_info as *mut vk::VideoEncodeH265ProfileInfoKHR).cast();
+            .chroma_bit_depth(bit_depth_flags)
+            .push(&mut h265_profile_info)
+            .push(&mut encode_usage);
 
         // Query capabilities to determine limits.
         let video_queue_instance =

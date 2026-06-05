@@ -13,6 +13,7 @@ use crate::encoder::PixelFormat;
 use crate::error::{PixelForgeError, Result};
 use crate::vulkan::VideoContext;
 use ash::vk;
+use ash::vk::TaggedStructure;
 use std::ptr;
 use tracing::{debug, info};
 
@@ -66,13 +67,20 @@ impl H264Encoder {
         let mut h264_profile_info =
             vk::VideoEncodeH264ProfileInfoKHR::default().std_profile_idc(profile_idc);
 
-        let mut profile_info = vk::VideoProfileInfoKHR::default()
+        // Encoder usage usage and tuning
+        let tuning_mode: vk::VideoEncodeTuningModeKHR = config.encoder_tune_mode.into();
+        let mut encode_usage = vk::VideoEncodeUsageInfoKHR::default()
+            .video_usage_hints(vk::VideoEncodeUsageFlagsKHR::STREAMING)
+            .video_content_hints(vk::VideoEncodeContentFlagsKHR::RENDERED)
+            .tuning_mode(tuning_mode);
+
+        let profile_info = vk::VideoProfileInfoKHR::default()
             .video_codec_operation(vk::VideoCodecOperationFlagsKHR::ENCODE_H264)
             .chroma_subsampling(chroma_subsampling)
             .luma_bit_depth(luma_bit_depth)
-            .chroma_bit_depth(chroma_bit_depth);
-        profile_info.p_next =
-            (&mut h264_profile_info as *mut vk::VideoEncodeH264ProfileInfoKHR).cast();
+            .chroma_bit_depth(chroma_bit_depth)
+            .push(&mut h264_profile_info)
+            .push(&mut encode_usage);
 
         // Query encode capabilities for the selected profile and use them to derive a safe
         // coded extent and DPB limits. This mirrors vk_video_samples and avoids device loss
