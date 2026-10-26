@@ -1534,6 +1534,31 @@ pub(crate) fn query_video_caps(
     })
 }
 
+/// The coded extent a picture of `width` by `height` is encoded at.
+///
+/// Aligned to lcm(codec block size, device granularity), then clamped up to the
+/// device minimum and re-aligned. The H.264 level check uses this same extent,
+/// so the macroblock count it reasons about is the one the session is made for.
+pub(crate) fn coded_extent(
+    width: u32,
+    height: u32,
+    align_unit: u32,
+    granularity: vk::Extent2D,
+    min_coded_extent: vk::Extent2D,
+) -> (u32, u32) {
+    let align_w = lcm(align_unit, granularity.width.max(1));
+    let align_h = lcm(align_unit, granularity.height.max(1));
+    let aligned_width = align_up(
+        align_up(width, align_w).max(min_coded_extent.width),
+        align_w,
+    );
+    let aligned_height = align_up(
+        align_up(height, align_h).max(min_coded_extent.height),
+        align_h,
+    );
+    (aligned_width, aligned_height)
+}
+
 /// Query capabilities, create the video session, DPB images, command resources,
 /// the encode pipeline and the GOP structure — the ~85% of encoder
 /// initialization that is identical across codecs.
@@ -1551,19 +1576,14 @@ pub(crate) fn build_encoder_common(req: &CommonInitRequest) -> Result<CommonInit
     // capability struct, required by the driver) via [`query_video_caps`].
     let capabilities = req.caps;
 
-    // Align the coded extent to lcm(codec block size, device granularity), then
-    // clamp up to the device minimum and re-align.
     let gran_w = capabilities.picture_access_granularity.width.max(1);
     let gran_h = capabilities.picture_access_granularity.height.max(1);
-    let align_w = lcm(req.align_unit, gran_w);
-    let align_h = lcm(req.align_unit, gran_h);
-    let aligned_width = align_up(
-        align_up(width, align_w).max(capabilities.min_coded_extent.width),
-        align_w,
-    );
-    let aligned_height = align_up(
-        align_up(height, align_h).max(capabilities.min_coded_extent.height),
-        align_h,
+    let (aligned_width, aligned_height) = coded_extent(
+        width,
+        height,
+        req.align_unit,
+        capabilities.picture_access_granularity,
+        capabilities.min_coded_extent,
     );
     if aligned_width > capabilities.max_coded_extent.width
         || aligned_height > capabilities.max_coded_extent.height
