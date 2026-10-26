@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- H.264 encode declares the level the stream needs. Without a level set, the
+  SPS carries the lowest level whose frame-size and macroblock-rate limits the
+  picture and frame rate fit (1080p60 is 4.2, 4K60 is 5.2), instead of a
+  hard-coded 4.1. `EncodeConfig::with_h264_level_idc` sets it explicitly; a
+  level too small for the stream, or above what the device reports, is an
+  error. The reference frame count is capped at what the level's decoded
+  picture buffer holds at the picture size.
 - H.264 hardware decoding via Vulkan Video: `Decoder` and `DecodeConfig`.
   Stream-driven, so the
   Vulkan session is created from the stream's own parameter sets and a mid-stream

@@ -1,8 +1,8 @@
-use super::{H264, MB_SIZE};
+use super::{H264, MB_SIZE, level};
 
 use crate::encoder::codec::{
-    CodecEncoder, CommonInitRequest, RgbConversionCaps, build_encoder_common, query_video_caps,
-    rgb_conversion_profile,
+    CodecEncoder, CommonInitRequest, RgbConversionCaps, build_encoder_common, coded_extent,
+    query_video_caps, rgb_conversion_profile,
 };
 use crate::encoder::dpb::{DecodedPictureBuffer, DecodedPictureBufferTrait, DpbConfig};
 use crate::encoder::resources::MIN_BITSTREAM_BUFFER_SIZE;
@@ -11,7 +11,7 @@ use crate::error::{PixelForgeError, Result};
 use crate::vulkan::VideoContext;
 use ash::vk;
 use ash::vk::TaggedStructure;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 impl H264 {
     /// Create a new H.264 encoder.
@@ -94,7 +94,72 @@ impl H264 {
             capabilities = capabilities.push(&mut rgb_caps);
         }
         let caps = query_video_caps(&context, &profile_info, &mut capabilities)?;
+        // The highest level the device will encode at. A value this table does
+        // not know is logged and left out of the check, not guessed at.
+        let device_max_level = level::from_std(h264_caps.max_level_idc);
+        if device_max_level.is_none() {
+            warn!(
+                "Device reports H.264 maxLevelIdc {:?}, which is not a level in the table; \
+                 the level is not checked against it",
+                h264_caps.max_level_idc
+            );
+        }
         let rgb_caps = config.rgb_input.map(|_| RgbConversionCaps::from(&rgb_caps));
+
+        // The level is resolved from the coded picture, not the requested one:
+        // alignment can make a macroblock larger than the request implies.
+        let (coded_width, coded_height) = coded_extent(
+            config.dimensions.width,
+            config.dimensions.height,
+            MB_SIZE,
+            caps.picture_access_granularity,
+            caps.min_coded_extent,
+        );
+        let frame_mbs = level::frame_macroblocks(coded_width / MB_SIZE, coded_height / MB_SIZE);
+        let level_idc = level::resolve(
+            config.h264_level_idc,
+            frame_mbs,
+            config.frame_rate_numerator,
+            config.frame_rate_denominator,
+            device_max_level,
+        )?;
+        let declared_level = level::lookup(level_idc).ok_or_else(|| {
+            PixelForgeError::InvalidInput(format!("No H.264 table entry for level {level_idc}"))
+        })?;
+        // The level's decoded picture buffer, in frames at this picture size.
+        // The SPS promises `max_dec_frame_buffering = references + 1`, which
+        // must fit it, so the reference count the device may use is capped.
+        let max_dpb_frames = level::max_dpb_frames(declared_level, frame_mbs);
+        if max_dpb_frames < 2 {
+            return Err(PixelForgeError::InvalidInput(format!(
+                "H.264 level {} holds {max_dpb_frames} frame(s) at {}x{}; one reference needs two",
+                level::fmt_level(level_idc),
+                config.dimensions.width,
+                config.dimensions.height
+            )));
+        }
+        let level_reference_cap = max_dpb_frames - 1;
+        if config.max_reference_frames > level_reference_cap {
+            warn!(
+                "H.264 level {} holds {max_dpb_frames} frames at {}x{}, so at most \
+                 {level_reference_cap} reference frame(s) fit; requested {}, using {level_reference_cap}",
+                level::fmt_level(level_idc),
+                config.dimensions.width,
+                config.dimensions.height,
+                config.max_reference_frames
+            );
+        }
+        info!(
+            "H.264 level {} declared: {frame_mbs} macroblocks per frame at {} macroblocks per second \
+             (device maxLevelIdc {}), DPB {max_dpb_frames} frame(s)",
+            level::fmt_level(level_idc),
+            level::macroblocks_per_second(
+                frame_mbs,
+                config.frame_rate_numerator,
+                config.frame_rate_denominator
+            ),
+            device_max_level.map_or_else(|| "unknown".to_string(), level::fmt_level)
+        );
         let qp_map_plan = crate::encoder::codec::QpMapCaps {
             min_delta: qp_map_codec_caps.min_qp_delta,
             max_delta: qp_map_codec_caps.max_qp_delta,
@@ -127,7 +192,7 @@ impl H264 {
             align_unit: MB_SIZE,
             // Macroblocks are 16x16 in every H.264 profile; nothing to query.
             refresh_block: MB_SIZE,
-            max_active_refs_cap: 32,
+            max_active_refs_cap: level_reference_cap as usize,
             bitstream_buffer_size,
             allow_layered_dpb: true,
             rgb_caps,
@@ -141,7 +206,7 @@ impl H264 {
         let mut dpb = DecodedPictureBuffer::new();
         dpb.h264.sequence_start(DpbConfig {
             dpb_size: common.dpb_slot_count as u32,
-            max_num_ref_frames: if config.b_frame_count > 0 { 2 } else { 1 },
+            max_num_ref_frames: active_reference_count,
             use_multiple_references: config.b_frame_count > 0,
             max_long_term_refs: 0,
             log2_max_frame_num_minus4: 4,
@@ -162,6 +227,7 @@ impl H264 {
             pending_unmark_frame_nums: Vec::new(),
             profile_idc,
             preferred_entropy_cabac,
+            level_idc,
         };
 
         let mut encoder = CodecEncoder { common, codec };

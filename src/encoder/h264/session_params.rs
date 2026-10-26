@@ -1,6 +1,6 @@
 //! H.264 parameter-set generation: SPS/PPS construction and header retrieval.
 
-use super::H264;
+use super::{H264, level};
 
 use crate::encoder::codec::EncoderCommon;
 use crate::encoder::resources::get_encoded_session_params;
@@ -102,7 +102,9 @@ impl H264 {
         let sps = ash::vk::native::StdVideoH264SequenceParameterSet {
             flags: sps_flags,
             profile_idc: self.profile_idc(),
-            level_idc: ash::vk::native::StdVideoH264LevelIdc_STD_VIDEO_H264_LEVEL_IDC_4_1,
+            // Resolved at creation from the picture, frame rate and device.
+            level_idc: level::to_std(self.level_idc)
+                .expect("level_idc was validated against the level table at creation"),
             chroma_format_idc,
             seq_parameter_set_id: 0,
             bit_depth_luma_minus8,

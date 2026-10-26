@@ -484,6 +484,13 @@ pub struct EncodeConfig {
     pub encode_content_hint: EncodeContentHint,
     /// Encoder tuning mode.
     pub encoder_tuning_mode: EncoderTuningMode,
+    /// H.264 `level_idc` to declare in the SPS: 42 for level 4.2, 52 for 5.2.
+    ///
+    /// `None`, the default, derives the lowest level whose frame-size and
+    /// macroblock-rate limits the picture and frame rate fit. Set it to declare
+    /// a higher level than that. A level too small for the stream is an error,
+    /// not a bump. Ignored by the other codecs.
+    pub h264_level_idc: Option<u8>,
 }
 
 impl EncodeConfig {
@@ -517,6 +524,7 @@ impl EncodeConfig {
             encode_usage_hint: EncodeUsageHint::Default,
             encode_content_hint: EncodeContentHint::Default,
             encoder_tuning_mode: EncoderTuningMode::Default,
+            h264_level_idc: None,
         }
     }
 
@@ -550,6 +558,7 @@ impl EncodeConfig {
             encode_usage_hint: EncodeUsageHint::Default,
             encode_content_hint: EncodeContentHint::Default,
             encoder_tuning_mode: EncoderTuningMode::Default,
+            h264_level_idc: None,
         }
     }
 
@@ -583,6 +592,7 @@ impl EncodeConfig {
             encode_usage_hint: EncodeUsageHint::Default,
             encode_content_hint: EncodeContentHint::Default,
             encoder_tuning_mode: EncoderTuningMode::Default,
+            h264_level_idc: None,
         }
     }
 
@@ -778,6 +788,15 @@ impl EncodeConfig {
     /// Set the encoder tuning mode.
     pub fn with_encoder_tuning_mode(mut self, mode: EncoderTuningMode) -> Self {
         self.encoder_tuning_mode = mode;
+        self
+    }
+
+    /// Declare this H.264 `level_idc` in the SPS instead of the derived one.
+    ///
+    /// Given as the level times ten: `42` for 4.2, `52` for 5.2. See
+    /// [`Self::h264_level_idc`].
+    pub fn with_h264_level_idc(mut self, level_idc: u8) -> Self {
+        self.h264_level_idc = Some(level_idc);
         self
     }
 }

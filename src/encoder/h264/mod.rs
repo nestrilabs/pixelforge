@@ -6,6 +6,7 @@
 //! (`record`), and the SPS/PPS generation (`session_params`).
 
 mod init;
+mod level;
 mod record;
 mod session_params;
 
@@ -55,6 +56,8 @@ pub(crate) struct H264 {
     profile_idc: u32,
     /// Whether CABAC entropy coding is preferred (from quality-level query).
     preferred_entropy_cabac: bool,
+    /// The `level_idc` declared in the SPS, resolved at creation.
+    level_idc: u8,
 }
 
 impl VideoCodec for H264 {
@@ -69,7 +72,9 @@ impl VideoCodec for H264 {
             // Reset the DPB for the new coded video sequence.
             let dpb_config = DpbConfig {
                 dpb_size: common.dpb_slot_count as u32,
-                max_num_ref_frames: common.config.max_reference_frames,
+                // The SPS declares the effective active-reference count, which
+                // the device and the level may have lowered from the request.
+                max_num_ref_frames: self.active_reference_count,
                 use_multiple_references: common.config.b_frame_count > 0,
                 log2_max_frame_num_minus4: 4,
                 log2_max_pic_order_cnt_lsb_minus4: 4,
