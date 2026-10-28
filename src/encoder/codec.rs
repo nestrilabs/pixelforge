@@ -910,6 +910,7 @@ pub(crate) fn qp_map_element_bytes(format: vk::Format) -> Option<usize> {
     match format {
         vk::Format::R8_SINT => Some(1),
         vk::Format::R16_SINT => Some(2),
+        vk::Format::R32_SINT => Some(4),
         _ => None,
     }
 }
@@ -2512,13 +2513,14 @@ mod qp_map_format_tests {
     fn a_known_format_reports_its_element_width() {
         assert_eq!(qp_map_element_bytes(vk::Format::R8_SINT), Some(1));
         assert_eq!(qp_map_element_bytes(vk::Format::R16_SINT), Some(2));
+        assert_eq!(qp_map_element_bytes(vk::Format::R32_SINT), Some(4));
     }
 
     /// An unknown format is refused rather than guessed at. Guessing here
     /// writes into an image of the wrong stride, which corrupts silently.
     #[test]
     fn an_unknown_format_is_refused() {
-        assert_eq!(qp_map_element_bytes(vk::Format::R32_SINT), None);
+        assert_eq!(qp_map_element_bytes(vk::Format::R32G32_SINT), None);
         assert_eq!(qp_map_element_bytes(vk::Format::R8G8B8A8_UNORM), None);
     }
 

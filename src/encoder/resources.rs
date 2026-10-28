@@ -620,9 +620,9 @@ pub(crate) fn create_qp_map_images(
                 },
             )
         };
-        // The element width is the device's: RADV asks for R16_SINT and
-        // NVIDIA for R8_SINT, and writing the wrong one puts every texel after
-        // the first at the wrong offset and runs off the end of the row.
+        // The element width is the device's: RADV asks for R32_SINT or
+        // R16_SINT, NVIDIA for R8_SINT, and writing the wrong one puts every
+        // texel after the first at the wrong offset and runs off the end of the row.
         let element = crate::encoder::codec::qp_map_element_bytes(format).ok_or_else(|| {
             PixelForgeError::ResourceCreation(format!(
                 "quantization map format {format:?} has no known element width"
@@ -644,9 +644,16 @@ pub(crate) fn create_qp_map_images(
                                 .write_unaligned(crate::encoder::codec::qp_delta_as_i8(*v));
                         }
                     }
-                    _ => {
+                    2 => {
                         let dst = row_base.cast::<i16>();
                         std::ptr::copy_nonoverlapping(src.as_ptr(), dst, extent.width as usize);
+                    }
+                    _ => {
+                        // Four bytes per texel; the delta is widened, never truncated.
+                        let dst = row_base.cast::<i32>();
+                        for (i, v) in src.iter().enumerate() {
+                            dst.add(i).write_unaligned(i32::from(*v));
+                        }
                     }
                 }
             }
