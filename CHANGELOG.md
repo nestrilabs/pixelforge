@@ -153,6 +153,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   had the same handle. Drivers reuse the handles of destroyed images, so a
   caller creating a new source per frame got every frame after the first
   converted from a freed image.
+- Session parameters for H.264, H.265 and AV1 are created with
+  `QUANTIZATION_MAP_COMPATIBLE` when a quantization delta map is in use, which
+  the spec requires before a map is bound with them. Without the bit the
+  validation layer reports every encode that binds a map. The output is
+  unchanged on RADV Renoir.
 
 ## [0.9.1] - 01-09-2026
 
