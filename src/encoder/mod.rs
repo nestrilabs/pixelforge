@@ -447,8 +447,9 @@ pub struct EncodeConfig {
     /// has no quantization delta map to express it with.
     pub intra_refresh_qp_delta: Option<i32>,
     /// QP shift for a picture that is sharpened (`Encoder::set_sharpen_next`), on the codec's
-    /// scale, negative only. The whole picture gets this delta, not the refresh band. `None`
-    /// or zero means no sharpened picture is possible. Needs the intra refresh band with a
+    /// scale, negative only. It is added on top of the refresh band's own delta, over the
+    /// whole picture, so the band keeps its shift. `None` or zero means no sharpened picture
+    /// is possible. Needs the intra refresh band with a
     /// quantization delta map on the device, and H.264 or H.265 (not AV1).
     pub idle_sharpen_qp_delta: Option<i32>,
     /// Whether to replace periodic key frames with an intra refresh cycle,
@@ -996,8 +997,8 @@ impl Encoder {
         self.0.request_idr()
     }
 
-    /// Sharpen the next picture only: it is coded with `idle_sharpen_qp_delta` over the whole
-    /// picture, then the flag clears itself. Returns an error when the session has no
+    /// Sharpen the next picture only: it is coded with `idle_sharpen_qp_delta` added on top of
+    /// the refresh band's delta, then the flag clears itself. Returns an error when the session has no
     /// sharpen map (see [`EncodeConfig::idle_sharpen_qp_delta`]) or the codec is AV1.
     pub fn set_sharpen_next(&mut self, on: bool) -> Result<()> {
         self.0.set_sharpen_next(on)

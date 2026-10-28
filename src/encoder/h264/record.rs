@@ -436,7 +436,7 @@ impl H264 {
         let mut qp_map_info = common.qp_map.as_ref().and_then(|m| {
             let index = crate::encoder::codec::qp_map_index(
                 common.sharpen_next,
-                m.sharpen_index,
+                m.sharpen_base,
                 common.intra_refresh.as_ref().map(|r| r.index),
             )?;
             let view = m.images.view_for(index)?;

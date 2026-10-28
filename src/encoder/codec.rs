@@ -78,7 +78,7 @@ pub(crate) struct EncoderCommon {
     pub intra_refresh: Option<IntraRefreshState>,
     /// The per-cycle-index quantization delta maps, when the band gets one.
     pub qp_map: Option<QpMapState>,
-    /// The next picture is sharpened: its map is the whole-picture sharpen map. Cleared
+    /// The next picture is sharpened: its map is the sharpened copy of its band map. Cleared
     /// after every picture (see `encode_after`).
     pub sharpen_next: bool,
 
@@ -485,7 +485,7 @@ impl<C: VideoCodec> CodecEncoder<C> {
                 .common
                 .qp_map
                 .as_ref()
-                .and_then(|m| m.sharpen_index)
+                .and_then(|m| m.sharpen_base)
                 .is_some();
             if !available {
                 return Err(PixelForgeError::InvalidInput(
@@ -922,23 +922,24 @@ impl QpMapGeometry {
     }
 }
 
-impl QpMapGeometry {
-    /// The map for a whole picture: `delta` on every texel. Used for a sharpened picture.
-    pub fn uniform_map(&self, delta: i16) -> Vec<i16> {
-        let (map_w, map_h) = self.extent();
-        vec![delta; (map_w as usize) * (map_h as usize)]
-    }
+/// The map for a sharpened picture: the refresh band's own map with `sharpen` added on every
+/// texel, clamped to the device's range. The band keeps its shift on a sharpened picture.
+pub(crate) fn sharpened_band_map(band: &[i16], sharpen: i16, min: i16, max: i16) -> Vec<i16> {
+    band.iter()
+        .map(|&v| (v as i32 + sharpen as i32).clamp(min as i32, max as i32) as i16)
+        .collect()
 }
 
-/// The map index for a picture: the sharpen map when the picture is sharpened, otherwise the
-/// refresh band's map for its cycle index. Pure, so the choice is tested without a device.
+/// The map index for a picture. A sharpened picture uses the sharpened copy of its cycle
+/// index's band map (`sharpen_base + band_index`); otherwise the refresh band's map. Pure, so
+/// the choice is tested without a device.
 pub(crate) fn qp_map_index(
     sharpen_next: bool,
-    sharpen_index: Option<u32>,
+    sharpen_base: Option<u32>,
     band_index: Option<u32>,
 ) -> Option<u32> {
     if sharpen_next {
-        sharpen_index
+        Some(sharpen_base?.checked_add(band_index?)?)
     } else {
         band_index
     }
@@ -953,8 +954,9 @@ pub(crate) fn qp_map_index(
 pub(crate) struct QpMapState {
     pub images: crate::encoder::resources::QpMapImages,
     pub texel_size: vk::Extent2D,
-    /// The map index of the whole-picture sharpen map, when there is one (it follows the cycle).
-    pub sharpen_index: Option<u32>,
+    /// The first map index of the sharpened maps, when there are any: the sharpened copy of
+    /// cycle index `i` is `sharpen_base + i`, and the sharpened maps follow the band maps.
+    pub sharpen_base: Option<u32>,
 }
 
 /// The create flags for session parameters. A quantization map may be bound with parameters
@@ -1004,8 +1006,11 @@ pub(crate) struct QpMapPlan {
     pub geometry: QpMapGeometry,
     /// Clamped to the device's range, on the codec's own scale.
     pub delta: i16,
-    /// The whole-picture sharpen delta, or 0 for no sharpen map.
+    /// The sharpen delta added on top of the band in a sharpened picture, or 0 for none.
     pub sharpen_delta: i16,
+    /// The device's range, which sharpened maps are clamped to.
+    pub min_delta: i16,
+    pub max_delta: i16,
     pub along_columns: bool,
     pub cycle: u32,
 }
@@ -1134,6 +1139,8 @@ fn resolve_qp_map(
         geometry,
         delta: delta as i16,
         sharpen_delta: sharpen_delta as i16,
+        min_delta: caps.min_delta as i16,
+        max_delta: caps.max_delta as i16,
         along_columns,
         cycle: refresh.cycle_duration,
     })
@@ -1918,12 +1925,19 @@ pub(crate) fn build_encoder_common(req: &CommonInitRequest) -> Result<CommonInit
                         .refresh_map(plan.along_columns, index, plan.cycle, plan.delta)
                 })
                 .collect();
-            // One map after the cycle: the whole picture at the sharpen delta. Index `cycle`
-            // selects it, and `view_for` wraps indices modulo the map count, so the refresh
-            // indices (below `cycle`) are unaffected.
-            let sharpen_index = if plan.sharpen_delta != 0 {
-                maps.push(plan.geometry.uniform_map(plan.sharpen_delta));
-                Some(plan.cycle)
+            // After the band maps: for each cycle index, the same band with the sharpen delta
+            // added on top. A sharpened picture uses `sharpen_base + index`, so it keeps the
+            // band's shift. The band indices (below `cycle`) are unaffected.
+            let sharpen_base = if plan.sharpen_delta != 0 {
+                let base = plan.cycle;
+                let sharpened: Vec<Vec<i16>> = maps
+                    .iter()
+                    .map(|band| {
+                        sharpened_band_map(band, plan.sharpen_delta, plan.min_delta, plan.max_delta)
+                    })
+                    .collect();
+                maps.extend(sharpened);
+                Some(base)
             } else {
                 None
             };
@@ -1943,7 +1957,7 @@ pub(crate) fn build_encoder_common(req: &CommonInitRequest) -> Result<CommonInit
             Some(QpMapState {
                 images,
                 texel_size: plan.texel_size,
-                sharpen_index,
+                sharpen_base,
             })
         }
         None => None,
@@ -2665,19 +2679,25 @@ mod sharpen_map_tests {
     }
 
     #[test]
-    fn uniform_map_covers_every_texel_at_the_delta() {
-        let g = geom();
-        let (w, h) = g.extent();
-        let map = g.uniform_map(-4);
-        assert_eq!(map.len(), (w * h) as usize);
-        assert!(map.iter().all(|v| *v == -4));
+    fn sharpened_map_keeps_the_band_shift_and_adds_the_sharpen_delta() {
+        // Band: 0 outside, -4 inside. Sharpen -4 gives -4 outside and -8 inside.
+        let band = [0i16, -4, 0, -4];
+        assert_eq!(sharpened_band_map(&band, -4, -51, 51), vec![-4, -8, -4, -8]);
     }
 
     #[test]
-    fn a_sharpened_picture_uses_the_sharpen_map_and_others_keep_the_band() {
-        assert_eq!(qp_map_index(true, Some(60), Some(7)), Some(60));
-        assert_eq!(qp_map_index(false, Some(60), Some(7)), Some(7));
-        assert_eq!(qp_map_index(false, Some(60), None), None);
+    fn sharpened_map_is_clamped_to_the_device_range() {
+        assert_eq!(sharpened_band_map(&[-50, 0], -4, -51, 51), vec![-51, -4]);
+        assert_eq!(sharpened_band_map(&[0], -4, 0, 51), vec![0]);
+    }
+
+    #[test]
+    fn a_sharpened_picture_uses_the_sharpened_copy_of_its_band_map() {
+        // Cycle of 30: band index 7 is map 7, its sharpened copy is 30 + 7.
+        assert_eq!(qp_map_index(true, Some(30), Some(7)), Some(37));
+        assert_eq!(qp_map_index(false, Some(30), Some(7)), Some(7));
+        assert_eq!(qp_map_index(false, Some(30), None), None);
         assert_eq!(qp_map_index(true, None, Some(7)), None);
+        assert_eq!(qp_map_index(true, Some(30), None), None);
     }
 }
