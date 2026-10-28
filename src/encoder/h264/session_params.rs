@@ -197,6 +197,9 @@ impl H264 {
 
         let mut params_create_info = vk::VideoSessionParametersCreateInfoKHR::default()
             .video_session(common.session)
+            .flags(crate::encoder::codec::qp_map_parameters_flags(
+                common.qp_map.is_some(),
+            ))
             .push(&mut h264_params_create_info)
             .push(&mut quality_level_info);
 

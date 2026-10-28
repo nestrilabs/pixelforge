@@ -906,6 +906,21 @@ pub(crate) struct QpMapState {
 /// `None` for anything this does not know how to write. Refusing is the point:
 /// the alternative is writing a guessed stride into a real image, which
 /// corrupts the map and overruns each row without failing anywhere visible.
+/// The create flags for session parameters. A quantization map may be bound with parameters
+/// only when they were created as compatible with one: the spec's
+/// `VkVideoEncodeInfoKHR` rule for `VkVideoEncodeQuantizationMapInfoKHR`
+/// (`VK_VIDEO_SESSION_PARAMETERS_CREATE_QUANTIZATION_MAP_COMPATIBLE_BIT_KHR`). Without the bit,
+/// the validation layer reports every encode that binds a map. H.264 and H.265 both need it.
+pub(crate) fn qp_map_parameters_flags(
+    has_qp_map: bool,
+) -> vk::VideoSessionParametersCreateFlagsKHR {
+    if has_qp_map {
+        vk::VideoSessionParametersCreateFlagsKHR::QUANTIZATION_MAP_COMPATIBLE
+    } else {
+        vk::VideoSessionParametersCreateFlagsKHR::empty()
+    }
+}
+
 pub(crate) fn qp_map_element_bytes(format: vk::Format) -> Option<usize> {
     match format {
         vk::Format::R8_SINT => Some(1),
