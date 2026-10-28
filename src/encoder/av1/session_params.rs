@@ -152,8 +152,13 @@ impl Av1 {
                 .std_operating_points(std::slice::from_ref(&operating_point));
 
         let mut quality_info = vk::VideoEncodeQualityLevelInfoKHR::default().quality_level(0);
+        // AV1 binds quantization maps in record.rs, so its parameters need the same
+        // compatibility flag as H.264 and H.265.
         let mut session_params_create_info = vk::VideoSessionParametersCreateInfoKHR::default()
             .video_session(common.session)
+            .flags(crate::encoder::codec::qp_map_parameters_flags(
+                common.qp_map.is_some(),
+            ))
             .push(&mut quality_info)
             .push(&mut av1_session_params_create_info);
 
