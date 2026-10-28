@@ -446,6 +446,11 @@ pub struct EncodeConfig {
     /// Ignored where there is no intra refresh to band, and where the device
     /// has no quantization delta map to express it with.
     pub intra_refresh_qp_delta: Option<i32>,
+    /// QP shift for a picture that is sharpened (`Encoder::set_sharpen_next`), on the codec's
+    /// scale, negative only. The whole picture gets this delta, not the refresh band. `None`
+    /// or zero means no sharpened picture is possible. Needs the intra refresh band with a
+    /// quantization delta map on the device, and H.264 or H.265 (not AV1).
+    pub idle_sharpen_qp_delta: Option<i32>,
     /// Whether to replace periodic key frames with an intra refresh cycle,
     /// and what the cycle is for. `None` keeps periodic key frames.
     ///
@@ -516,6 +521,7 @@ impl EncodeConfig {
             max_reference_frames: DEFAULT_MAX_REFERENCE_FRAMES,
             intra_refresh: None,
             intra_refresh_qp_delta: None,
+            idle_sharpen_qp_delta: None,
             intra_refresh_mode: None,
             virtual_buffer_size_ms: None,
             initial_virtual_buffer_size_ms: None,
@@ -550,6 +556,7 @@ impl EncodeConfig {
             max_reference_frames: DEFAULT_MAX_REFERENCE_FRAMES,
             intra_refresh: None,
             intra_refresh_qp_delta: None,
+            idle_sharpen_qp_delta: None,
             intra_refresh_mode: None,
             virtual_buffer_size_ms: None,
             initial_virtual_buffer_size_ms: None,
@@ -584,6 +591,7 @@ impl EncodeConfig {
             max_reference_frames: DEFAULT_MAX_REFERENCE_FRAMES,
             intra_refresh: None,
             intra_refresh_qp_delta: None,
+            idle_sharpen_qp_delta: None,
             intra_refresh_mode: None,
             virtual_buffer_size_ms: None,
             initial_virtual_buffer_size_ms: None,
@@ -709,6 +717,12 @@ impl EncodeConfig {
 
     /// Set the QP adjustment applied inside the intra refresh band; see the
     /// field. Clamped to what the device allows.
+    pub fn with_idle_sharpen_qp_delta(mut self, delta: Option<i32>) -> Self {
+        self.idle_sharpen_qp_delta = delta;
+        self
+    }
+
+    /// See [`EncodeConfig::idle_sharpen_qp_delta`].
     pub fn with_intra_refresh_qp_delta(mut self, delta: Option<i32>) -> Self {
         self.intra_refresh_qp_delta = delta;
         self
@@ -848,6 +862,7 @@ trait EncoderApi: Send {
     fn set_target_bitrate(&mut self, bits_per_second: u32) -> Result<()>;
     fn set_gop_size(&mut self, gop_size: Option<u32>);
     fn set_color_description(&mut self, desc: ColorDescription) -> Result<()>;
+    fn set_sharpen_next(&mut self, on: bool) -> Result<()>;
 }
 
 impl<C: codec::VideoCodec> EncoderApi for codec::CodecEncoder<C> {
@@ -863,6 +878,9 @@ impl<C: codec::VideoCodec> EncoderApi for codec::CodecEncoder<C> {
     }
     fn flush(&mut self) -> Result<()> {
         codec::CodecEncoder::flush(self)
+    }
+    fn set_sharpen_next(&mut self, on: bool) -> Result<()> {
+        codec::CodecEncoder::set_sharpen_next(self, on)
     }
     fn request_idr(&mut self) {
         codec::CodecEncoder::request_idr(self)
@@ -975,6 +993,13 @@ impl Encoder {
     /// Request that the next frame be an IDR frame.
     pub fn request_idr(&mut self) {
         self.0.request_idr()
+    }
+
+    /// Sharpen the next picture only: it is coded with `idle_sharpen_qp_delta` over the whole
+    /// picture, then the flag clears itself. Returns an error when the session has no
+    /// sharpen map (see [`EncodeConfig::idle_sharpen_qp_delta`]) or the codec is AV1.
+    pub fn set_sharpen_next(&mut self, on: bool) -> Result<()> {
+        self.0.set_sharpen_next(on)
     }
 
     /// Recover from packet loss without a full IDR (reference frame invalidation).

@@ -434,7 +434,11 @@ impl H264 {
         // intra-coded. The maps are built per cycle index at session creation,
         // so this is a lookup rather than any per-frame work.
         let mut qp_map_info = common.qp_map.as_ref().and_then(|m| {
-            let index = common.intra_refresh.as_ref()?.index;
+            let index = crate::encoder::codec::qp_map_index(
+                common.sharpen_next,
+                m.sharpen_index,
+                common.intra_refresh.as_ref().map(|r| r.index),
+            )?;
             let view = m.images.view_for(index)?;
             Some(
                 vk::VideoEncodeQuantizationMapInfoKHR::default()
