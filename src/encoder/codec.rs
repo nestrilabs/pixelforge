@@ -901,16 +901,12 @@ pub(crate) struct QpMapState {
     pub texel_size: vk::Extent2D,
 }
 
-/// How wide one entry of a delta map is, for the format the device asked for.
-///
-/// `None` for anything this does not know how to write. Refusing is the point:
-/// the alternative is writing a guessed stride into a real image, which
-/// corrupts the map and overruns each row without failing anywhere visible.
 /// The create flags for session parameters. A quantization map may be bound with parameters
 /// only when they were created as compatible with one: the spec's
 /// `VkVideoEncodeInfoKHR` rule for `VkVideoEncodeQuantizationMapInfoKHR`
 /// (`VK_VIDEO_SESSION_PARAMETERS_CREATE_QUANTIZATION_MAP_COMPATIBLE_BIT_KHR`). Without the bit,
-/// the validation layer reports every encode that binds a map. H.264 and H.265 both need it.
+/// the validation layer reports every encode that binds a map. H.264, H.265 and AV1 all bind
+/// maps, so all three use this.
 pub(crate) fn qp_map_parameters_flags(
     has_qp_map: bool,
 ) -> vk::VideoSessionParametersCreateFlagsKHR {
@@ -921,6 +917,11 @@ pub(crate) fn qp_map_parameters_flags(
     }
 }
 
+/// How wide one entry of a delta map is, for the format the device asked for.
+///
+/// `None` for anything this does not know how to write. Refusing is the point:
+/// the alternative is writing a guessed stride into a real image, which
+/// corrupts the map and overruns each row without failing anywhere visible.
 pub(crate) fn qp_map_element_bytes(format: vk::Format) -> Option<usize> {
     match format {
         vk::Format::R8_SINT => Some(1),
@@ -2548,5 +2549,19 @@ mod qp_map_format_tests {
         assert_eq!(qp_delta_as_i8(-4), -4);
         assert_eq!(qp_delta_as_i8(-200), i8::MIN);
         assert_eq!(qp_delta_as_i8(200), i8::MAX);
+    }
+
+    /// Session parameters are created compatible with quantization maps exactly when a map
+    /// exists; without a map the flag must stay off so plain sessions are unchanged.
+    #[test]
+    fn session_parameters_are_map_compatible_only_with_a_qp_map() {
+        assert_eq!(
+            qp_map_parameters_flags(true),
+            vk::VideoSessionParametersCreateFlagsKHR::QUANTIZATION_MAP_COMPATIBLE
+        );
+        assert_eq!(
+            qp_map_parameters_flags(false),
+            vk::VideoSessionParametersCreateFlagsKHR::empty()
+        );
     }
 }
