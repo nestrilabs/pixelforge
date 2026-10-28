@@ -715,14 +715,15 @@ impl EncodeConfig {
         }
     }
 
-    /// Set the QP adjustment applied inside the intra refresh band; see the
-    /// field. Clamped to what the device allows.
+    /// Set the QP shift for a sharpened picture; see
+    /// [`EncodeConfig::idle_sharpen_qp_delta`]. Clamped to what the device allows.
     pub fn with_idle_sharpen_qp_delta(mut self, delta: Option<i32>) -> Self {
         self.idle_sharpen_qp_delta = delta;
         self
     }
 
-    /// See [`EncodeConfig::idle_sharpen_qp_delta`].
+    /// Set the QP adjustment applied inside the intra refresh band; see the
+    /// field. Clamped to what the device allows.
     pub fn with_intra_refresh_qp_delta(mut self, delta: Option<i32>) -> Self {
         self.intra_refresh_qp_delta = delta;
         self
